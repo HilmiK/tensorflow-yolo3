@@ -9,15 +9,6 @@ from model.yolo3_model import yolo
 
 class yolo_predictor:
     def __init__(self, obj_threshold, nms_threshold, classes_file, anchors_file):
-        """
-        Introduction
-        ------------
-            初始化函数
-        Parameters
-        ----------
-            obj_threshold: 目标检测为物体的阈值
-            nms_threshold: nms阈值
-        """
         self.obj_threshold = obj_threshold
         self.nms_threshold = nms_threshold
         self.classes_path = classes_file
@@ -33,11 +24,7 @@ class yolo_predictor:
 
 
     def _get_class(self):
-        """
-        Introduction
-        ------------
-            读取类别名称
-        """
+
         classes_path = os.path.expanduser(self.classes_path)
         with open(classes_path) as f:
             class_names = f.readlines()
@@ -45,11 +32,7 @@ class yolo_predictor:
         return class_names
 
     def _get_anchors(self):
-        """
-        Introduction
-        ------------
-            读取anchors数据
-        """
+
         anchors_path = os.path.expanduser(self.anchors_path)
         with open(anchors_path) as f:
             anchors = f.readline()
@@ -60,26 +43,11 @@ class yolo_predictor:
 
 
     def eval(self, yolo_outputs, image_shape, max_boxes = 20):
-        """
-        Introduction
-        ------------
-            根据Yolo模型的输出进行非极大值抑制，获取最后的物体检测框和物体检测类别
-        Parameters
-        ----------
-            yolo_outputs: yolo模型输出
-            image_shape: 图片的大小
-            max_boxes:  最大box数量
-        Returns
-        -------
-            boxes_: 物体框的位置
-            scores_: 物体类别的概率
-            classes_: 物体类别
-        """
+
         anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
         boxes = []
         box_scores = []
         input_shape = tf.shape(yolo_outputs[0])[1 : 3] * 32
-        # 对三个尺度的输出获取每个预测box坐标和box的分数，score计算为置信度x类别概率
         for i in range(len(yolo_outputs)):
             _boxes, _box_scores = self.boxes_and_scores(yolo_outputs[i], self.anchors[anchor_mask[i]], len(self.class_names), input_shape, image_shape)
             boxes.append(_boxes)
@@ -109,22 +77,7 @@ class yolo_predictor:
 
 
     def boxes_and_scores(self, feats, anchors, classes_num, input_shape, image_shape):
-        """
-        Introduction
-        ------------
-            将预测出的box坐标转换为对应原图的坐标，然后计算每个box的分数
-        Parameters
-        ----------
-            feats: yolo输出的feature map
-            anchors: anchor的位置
-            class_num: 类别数目
-            input_shape: 输入大小
-            image_shape: 图片大小
-        Returns
-        -------
-            boxes: 物体框的位置
-            boxes_scores: 物体框的分数，为置信度和类别概率的乘积
-        """
+
         box_xy, box_wh, box_confidence, box_class_probs = self._get_feats(feats, anchors, classes_num, input_shape)
         boxes = self.correct_boxes(box_xy, box_wh, input_shape, image_shape)
         boxes = tf.reshape(boxes, [-1, 4])
@@ -134,20 +87,7 @@ class yolo_predictor:
 
 
     def correct_boxes(self, box_xy, box_wh, input_shape, image_shape):
-        """
-        Introduction
-        ------------
-            计算物体框预测坐标在原图中的位置坐标
-        Parameters
-        ----------
-            box_xy: 物体框左上角坐标
-            box_wh: 物体框的宽高
-            input_shape: 输入的大小
-            image_shape: 图片的大小
-        Returns
-        -------
-            boxes: 物体框的位置
-        """
+
         box_yx = box_xy[..., ::-1]
         box_hw = box_wh[..., ::-1]
         input_shape = tf.cast(input_shape, dtype = tf.float32)
@@ -172,32 +112,17 @@ class yolo_predictor:
 
 
     def _get_feats(self, feats, anchors, num_classes, input_shape):
-        """
-        Introduction
-        ------------
-            根据yolo最后一层的输出确定bounding box
-        Parameters
-        ----------
-            feats: yolo模型最后一层输出
-            anchors: anchors的位置
-            num_classes: 类别数量
-            input_shape: 输入大小
-        Returns
-        -------
-            box_xy, box_wh, box_confidence, box_class_probs
-        """
+
         num_anchors = len(anchors)
         anchors_tensor = tf.reshape(tf.constant(anchors, dtype=tf.float32), [1, 1, 1, num_anchors, 2])
         grid_size = tf.shape(feats)[1:3]
         predictions = tf.reshape(feats, [-1, grid_size[0], grid_size[1], num_anchors, num_classes + 5])
-        # 这里构建13*13*1*2的矩阵，对应每个格子加上对应的坐标
         grid_y = tf.tile(tf.reshape(tf.range(grid_size[0]), [-1, 1, 1, 1]), [1, grid_size[1], 1, 1])
         grid_x = tf.tile(tf.reshape(tf.range(grid_size[1]), [1, -1, 1, 1]), [grid_size[0], 1, 1, 1])
         grid = tf.concat([grid_x, grid_y], axis=-1)
         grid = tf.cast(grid, tf.float32)
-        # 将x,y坐标归一化为占416的比例
         box_xy = (tf.sigmoid(predictions[..., :2]) + grid) / tf.cast(grid_size[::-1], tf.float32)
-        # 将w,h也归一化为占416的比例
+
         box_wh = tf.exp(predictions[..., 2:4]) * anchors_tensor / tf.cast(input_shape[::-1], tf.float32)
         box_confidence = tf.sigmoid(predictions[..., 4:5])
         box_class_probs = tf.sigmoid(predictions[..., 5:])
@@ -205,22 +130,8 @@ class yolo_predictor:
 
 
     def predict(self, inputs, image_shape):
-        """
-        Introduction
-        ------------
-            构建预测模型
-        Parameters
-        ----------
-            inputs: 处理之后的输入图片
-            image_shape: 图像原始大小
-        Returns
-        -------
-            boxes: 物体框坐标
-            scores: 物体概率值
-            classes: 物体类别
-        """
+       
         model = yolo(config.norm_epsilon, config.norm_decay, self.anchors_path, self.classes_path, pre_train = False)
         output = model.yolo_inference(inputs, config.num_anchors // 3, config.num_classes, training = False)
         boxes, scores, classes = self.eval(output, image_shape, max_boxes = 20)
         return boxes, scores, classes
-
